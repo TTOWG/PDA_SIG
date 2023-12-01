@@ -1,0 +1,424 @@
+---
+title: "Multivariate Analysis of Solous Water Quality Data"
+author: "TTOWG"
+date: "4/21/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r import_libraries, echo=TRUE}
+library(xtable)
+```
+
+```{r import_data, echo = TRUE}
+data_wet = read.csv("solous_data_wet.csv", header=T)
+
+data_dry = read.csv("solous_data_dry.csv", header=T)
+```
+
+### Descriptive Statistics
+
+```{r descrip_stats, echo = TRUE}
+descrip_stats = data.frame(mean_wet = sapply(data_wet[5:24], mean), stdev_wet = sapply(data_wet[5:24], sd), mean_dry = sapply(data_dry[5:24], mean), stdev_dry = sapply(data_dry[5:24], sd))
+
+print(descrip_stats)
+```
+
+
+## Correlation Analysis 
+```{r correla_analysis, echo=TRUE}
+library(gridGraphics)
+grab_grob <- function(){
+  grid.echo()
+  grid.grab()
+}
+
+correl_matrix_wet = round(cor(data_wet[5:24]),4)
+up_correl_matrix_wet = data.frame(correl_matrix_wet)
+up_correl_matrix_wet[upper.tri(up_correl_matrix_wet)] = ""
+print(up_correl_matrix_wet)
+
+#plot a correlogram
+library(corrplot)
+corrplot_wet = corrplot(correl_matrix_wet, method = 'shade', type = "lower", order = "original", tl.col = "black", tl.srt = 45, title = 'Wet Season', diag = TRUE, cl.pos = 'r', outline = TRUE)
+
+corrgrob_wet <- grab_grob()
+
+correl_matrix_dry = round(cor(data_dry[5:24]),4)
+up_correl_matrix_dry = data.frame(correl_matrix_dry)
+up_correl_matrix_dry[upper.tri(up_correl_matrix_dry)] = ""
+print(up_correl_matrix_dry)
+
+#plot a correlogram
+library(corrplot)
+corrplot_dry = corrplot(correl_matrix_dry, method = 'shade', type = "lower", order = "original", tl.col = "black", tl.srt = 45, title = 'Dry Season', diag = TRUE, cl.pos = 'r', outline = TRUE)
+
+corrgrob_dry <- grab_grob()
+
+library(gridExtra)
+corrplot_both = arrangeGrob(corrgrob_dry, corrgrob_dry, ncol = 2)
+grid.draw(corrplot_both, recording = TRUE)
+
+
+
+```
+Note: the values in the correlation matrices are Pearson correlation coefficients - a measure of linear association between two variables.
+
+### Identifying strongly correlated variables
+Identifying pairs of variables that are strongly correlated is important for the purpose of detecting and avoiding potential multicolinearity in case regression analysis is to be performed on this data. Also, pairs identified to be correlated here would be expected to also have similar influence (loading) on principal components.
+                       
+- Strongly positively correlated variables
+  * Wet season data:
+    + ph, EC and TDS
+    + Hardness, Ca and Mg (perfect correlation, $rho = 1$)
+    + K and PO4
+    + K and Cu
+    + Note: Inspite of PO4 and Cu being individually strongly correlated to K, they are weakly correlated to one another.
+  * Dry season data:
+    + ph, EC, TDS, Cl, SO4, NO3 and Cr
+    + K, Fe, and Pb
+    + Ca and Mg
+    + Ni and Mn
+- Strongly negatively correlated variables
+  * Wet season data:
+    + TDS and Mn
+    + EC and Mn
+  * Dry season data:
+    + Temp and Ca
+    + Temp and Mg
+
+Note: the researcher with domain knowledge should provide theoretical (geochemical) interpretations for the strong associations between variables as reported above. Also, the differences of these associations between wet and dry seasons should be interpreted. For example, during dry season, Cl, SO4, NO3 and Cr are all correlated with the trio of pH, EC and TDS; that is not the case for the wet season data.  Such interpretations are available in Ganiyu et al, (2018).
+
+
+## Principal Components Analysis - PCA
+
+From the descriptive statistics above, it is observed that the water quality parameters have vastly different means and standard deviation. In order to avoid disproportionate influence of some variables, the data is standardized (centered and scaled) before performing PCA; i.e. all variables are transformed to have zero mean and unit variance.
+
+```{r pca, echo = TRUE}
+# Implementing PCA with FactoMineR
+library(FactoMineR)
+library(factoextra)
+pca_wet = PCA(X = scale(data_wet[5:24], center = TRUE, scale = TRUE), graph = FALSE, ncp = 7)
+
+pca_dry = PCA(X = scale(data_dry[5:24], center = TRUE, scale = TRUE), graph = FALSE, ncp = 7)
+
+# Implementing PCA with prcomp: to obtain loadings as output.
+prcomp_wet = prcomp(data_wet[5:24], scale. = TRUE)
+
+prcomp_dry = prcomp(data_dry[5:24], scale. = TRUE)
+```
+
+
+### Deciding on the number of principal components to retain
+The number of principal components to be retained is determined on the basis of percentage of variance explained (PVE) by the principal components. This information is equivalent to the eigen-values (variances) of each principal component, and can be visualized with a Scree plot, as shown below. Here, the Scree plot is presented as a plot of cumulative percentage variance explained (CPVE). As many principal components as explained a significant proportion of variance would be retained.
+```{r scree_plot, echo=TRUE}
+library(FactoMineR)
+library(factoextra)
+
+# For wet season
+pca_wet_alt = pca_wet # copying to alter (to preserve original)
+pca_wet_alt$eig[,2] = pca_wet_alt$eig[,3]   # altering the copy to fit plotting option
+scree_wet = fviz_screeplot(pca_wet_alt, addlabels = TRUE, ylim = c(0, 100), main = 'Wet Season', xlab =" Principal Component", ylab ="Cumulative Percentage of Variance Explained" )
+#print(scree_wet)
+
+# For dry season
+pca_dry_alt = pca_dry # copying to alter (to preserve original)
+pca_dry_alt$eig[,2] = pca_dry_alt$eig[,3]   # altering the copy to fit plotting option
+scree_dry = fviz_screeplot(pca_dry_alt, addlabels = TRUE, ylim = c(0, 100), main = 'Dry Season', xlab =" Principal Component", ylab ="Cumulative Percentage of Variance Explained" )
+#print(scree_dry)
+
+library(patchwork)
+scree_wet + scree_dry
+```
+
+It is observed from results above that the first five (5) principal components (PC) account for over 90% of variance, in both the wet season and dry season data. Therefore, these 5 PCs are retained.
+     
+PCA may be done in either of the following settings:
+   
+* Case 1: a cloud of n observation points (aka individuals) plotted plotted in a space with an axis devoted to each of p variables.
+  - In this case, PCA is used to obtain linear principal components axes (factor axes) - being vectors (in that space) that are linear combinations of the the p variables.
+* Case 2: a cloud of p variable points plotted in a space with an axis devoted to each of n observation points.
+  - In this case, PCA is used to obtain linear principal components axes (factor axes) - being vectors (in that space) that are linear combinations of the the n observation points.
+   
+In analyzing the results of PCA, the focus may be on Case 1 or Case 2 or both. In Case 1, determining the influence of each variable on the Principal Components is of interest while the influence of each observation point on the PC is of interest in Case 2.      
+     
+### Case 1: Influence of Variables on Principal Components
+Principal Components (PC) are linear combinations of the original variables. Hence, evaluating the influence of each variable on a given PC is an essential part of analyzing the PCs. The variables' influence are evaluated via two related measures: **Loadings** and **Contributions**. Here, we discuss the loadings, first. 
+   
+#### Loadings       
+The set of loading values of all p variables in a given principal component is the coordinates of the PC vector (direction) in the p-dimensional space. For example, in a 2D x-y space, if a principal component lies in the 45 degree direction, then the loading vector is (1,1). Such set of loading values is known as the loading vector. In simple terms, the loadings are values of the p-variables that describes a unit vector in the direction of the PC-axis. They are like the recipes of ingredients (p variables) that must be mixed together to obtain a unit vector in the direction of PC-axis. As such, they represent the measure of influence (magnitude and direction) that corresponding variables have on that PC. The sign (positive or negative) of a loading is an indication of the type of proportionality between the variable and the PC. A positive loading indicate a direct proportionality between the variable and the PC; i.e. an increase in the variable leads to an increase in the PC score; vice-versa for a negative loading. The magnitude of a loading (either positive or negative) is an indication of the magnitude of the proportionality between the variable and the PC. For example, the larger a positive loading is, the more increase in the PC score is caused by a unit increase in that variable. Also, the larger a negative loading is, the more decrease in the PC score is caused by a unit increase in that variable. Furthermore, a PC is a linear combination of the variables ($x_1,x_2,x_3, ...x_p$) such that the loading values are the coefficients in that linear combination ($PC_k = w_{1,k}x_1 + w_{2,k}x_2 + w_{3,k}x_3 + ...w_{p,k}x_p$). In this case, the loading vector is [$w_{1,k}, w_{2,k}, w_{3,k} ...$].
+    
+   
+For both the Wet and Dry season data, the Loadings are obtained and interpreted here.
+   
+```{r loading_vector, echo = TRUE}
+loading_vector_wet = data.frame(round(prcomp_wet$rotation, 4))[,1:5]
+print(loading_vector_wet)
+
+loading_vector_dry = data.frame(round(prcomp_dry$rotation, 4))[,1:5]
+print(loading_vector_dry)
+```
+From the loading vectors obtained in this analysis, the following interpretations are made. Note that any loading value of magnitude greater than $\sqrt{\frac{1}{n}} = 0.2236$ is deemed strong (either positively or negatively); where n is the number of variables involved.
+             
+- Wet Season Data:
+  * $PC_1$: 
+    + pH, EC, TDS, Hardness, Ca, Mg are all strongly positively loaded into $PC_1$:
+      + The implication is that $PC_1$ is a measure of the extent of abundance of these variables; i.e. $PC_1$ score would be high when these variables have high values, and vice-versa.
+      + This agrees with the conclusions made in the correlation analysis above where this variables are observed to be positively correlated.
+      + The geochemical interpretation of this recipe of variables in $PC_1$ is left for the domain expert. Such interpretations are available in Ganiyu et al (2018)
+    + Zn and Mn are both strongly negatively loaded into $PC_1$
+      + The implication is that $PC_1$ is a measure of the extent of lack of these variables; i.e. $PC_1$ score would be high when the Zn and Mn variables have low values, and vice-versa.
+    + Interpreting the positive and negative loadings together, it can be stated that high $PC_1$ scores occur in the case of high values of pH, EC, TDS, Hardness, Ca, Mg and low values of Zn and Mn.
+    + The domain expert would need to discuss the reason(s) these two sets of variables are inversely related, in the wet season data.  
+  * $PC_2$:
+    + Fe is the only variable strongly positive loaded into $PC_2$
+    + Notably, in the correlations values reported above, Fe is not observed to be positively correlated with any of the variables in $PC_1$; expectedly, it is loaded into a separate PC.
+    + K, PO4, Cu and Ni are all strongly negatively loaded into $PC_2$.
+    + Hence, $PC_2$ is a measure of extent of abundance of Fe and lack of K, PO4, Cu and Ni; i.e. high $PC_2$ scores occur in the case of high Fe values and low values of K, PO4, Cu and Ni. Al
+  * $PC_3$:
+    + pH, TDS, Pb and Cr are all strongly positively loaded into $PC_3$
+    + Hardness, Ca, Mg, PO4 and NO3 are all strongly negatively loaded into $PC_3$
+    + Comparing $PC_1$ and $PC_3$, the following observations are made:
+      + In $PC_1$, all five variables (pH, TDS, Hardness, Ca, Mg) have positive loadings. However, in $PC_3$, the duo of pH and TDS are have positive loadings while the trio of Hardness, Ca and Mg have negative loadings.
+      + The situation in $PC_1$ is NOT contradictory to the situation in $PC_3$ as it seems to appear.
+      + Results from the correlation analysis reported above indicate that Hardness, Ca and Mg are all perfectly correlated ($rho = 1$). It is only such perfectly correlated variables that must neccessarily have similar effects (magnitude and direction) on any PC. Other variables correlated (not perfectly) may have different effects. 
+      + In summary, pH and TDS are positively (but not perfectly) correlated with Hardness, Ca and Mg; this association is captured by $PC_1$. $PC_3$ only captures the correlation of pH and TDS with some other variables.  
+  * $PC_4$:
+    + Only Na is strongly positively loaded into $PC_4$.
+    + Temp, SO4 and Cu are all strongly negatively loaded into $PC_4$.
+  * $PC_5$:
+    + EC, TDS, SO4 and NO3 are strongly positively loaded into $PC_5$
+    + Temp, Mn and Cr are strongly negatively loaded into $PC_5$.
+- Dry Season Data:
+  * $PC_1$:
+    + pH, EC, TDS, Cl, SO4, NO3 and Cr are all strongly positively loaded into $PC_1$.
+      + This confirms the correlation analysis results where all these 7 variables have been reported to be strongly positively correlated with each other.
+      + Hence, $PC_1$ captures the joint behaviour of these 7 variables.
+      + The geochemical interpretation of this joint behaviour of the 7 variables in $PC_1$ is left for the domain expert.
+      + Also, the domain expert need to compare and explain the difference between $PC_1$ for wet season data and $PC_1$ for dry season data. Other PCs too need to be compared accross seasons.
+      + For example, Hardness, Ca and Mg variables contributed significantly to $PC_1$ during wet season but have insignificant contribution to $PC_1$ during dry season. In the same vein, Cl, SO4, NO3 and Cr variables contributed significantly to $PC_1$ during dry season but have insignificant contribution to $PC_1$ during wet season. Is there any theoretical justification for such seasonal changes.
+    + No variable is strongly negatively loaded into $PC_1$.  
+  * $PC_2$:
+    + Ca, Mg and PO4 are all strongly positively loaded into $PC_2$.
+    + K, Na, Fe and Pb are all strongly negatively loaded into $PC_2$.
+    + These loadings are in agreement with the correlation analysis results reported above.
+  * $PC_3$:
+    + Temp, Zn, Mn and Ni are all strongly positively loaded into $PC_3$.
+    + Ca, Mg, K, Fe and Pb are all strongly negatively loaded into $PC_3$
+  *$PC_4$:
+    + Temp, Hardness, PO4 and Cu are all strongly positively loaded into $PC_4$.
+      + Curiously, this set of variables are not observed to be strongly positively correlated in the correlation analysis section of this report. Their assumed joint behaviour in $PC_4$ might as well be of little significance, considering that $PC_4$ only accounts for `r paste(round(pca_dry$eig)[4], '%', sep = '')` of the total variation in the dry-season data. 
+    + Only Mn is strongly negatively loaded into $PC_4$.
+  * $PC_5$:
+    + Hardness and Ni are both strongly positively loaded into $PC_5$.
+    + Na, PO4 and Zn are all strongly negatively loaded into $PC_5$.
+      
+While the first five principal components have been interpreted in this report, the domain expert may consider  only $PC_1$, $PC_2$ and $PC_3$ in their geochemical interpretations; since these PCs account for roughly 70% of the total variation in the data sets.
+    
+    
+#### Correlations between variables and principal components
+   
+For a pair of PCs; typically, $PC_1$ and $PC_2$, the Loading values can be visualized as Correlation Circle. The Correlation Circle presents the correlations between every variable and each of $PC_1$ and $PC_2$. For a standardized PCA, the correlation between a variable and a PC is equivalent to the Loading of that variable into that PC.  In the Correlation Circle, the $p_{th}$ variable is represented by an arrow (vector) starting from the axis origin and ending at a point whose coordinates are the variable's loading values to each PC making up the plot axes; i.e. point $(w_{p,1}, w_{p,2})$. The longer a variable's arrow along a PC axis, the more that variable is loaded into (correlated with) that PC; the direction of the arrow shows the sign of the loading/correlation (positive or negative).
+    
+With the Correlation Circle, clusters of variables (group of correlated variables with similar behaviour, as outlined above) can also be visually detected and analyzed. 
+   
+  
+```{r correlation_circle, echo=TRUE}
+library(FactoMineR)
+library(factoextra)
+corr_circle_wet = fviz_pca_var(pca_wet, col.var = "blue", ggtheme = theme_gray(), title = 'Wet Season')
+corr_circle_dry = fviz_pca_var(pca_dry, col.var = "blue", ggtheme = theme_gray(), title = 'Dry Season')
+
+library(patchwork)
+corr_circle_wet + corr_circle_dry
+```
+    
+**Patterns observed in Wet Season Data**
+   
+Clearly, pH, EC, TDS, Hardness, Ca, Mg all clustered together towards the right side of the plot, and are thus positively correlated with $PC_1$. Other clusters of variables observed include Zn, Mn, Cl, SO4 (bottom left), and PO4, K, Ni, Cu (top; positively correlated with $PC_2$). Each of these clusters shows a group of correlated variables having a joint behavior, as earlier explained. In fact, these clusters are the visual form of the results explained in the analysis of the principal components loadings.            
+    
+**Patterns observed in Dry Season Data**
+   
+Clusters observed include pH, EC, TDS, Cl, SO4, NO3 and Cr (right; positively correlated with $PC_1$), Na, Temp, Pb, K and Fe (top; positively correlated to $PC_2$), and Ca, Mg and PO4 (bottom left).   
+   
+#### Contributions
+   
+While **Loadings** shows the influence of the variables on PC, in terms of magnitude and direction (-ve/+ve); **Contributions** (of variables) show the proportion of influence of variables regardless of direction. The Contributions (in fractions of 1) of the p-variables to a given PC-axis is measured as squares of the loading values. In simple terms, the Contribution of a particular variable to a given PC is the proportion of the length the PC (unit vector) attributable to that variable. The Euclidean length of a vector is simply the sum of squares of coordinate points (loadings) of the vector. With this, each squared loading is simply a proportion of the total sum (the total being 1 for a unit vector). Additionally, the combined Contribution of a particular variable to a set of PCs can be obtained as a variance-weighted average of its contributions to the each PC in the set. 
+     
+Visual representations of the Contributions of variables to  $PC_1$, to $PC_2$, and to the combined set of $PC_1$ and $PC_2$ for both Wet and Dry season are presented below; these representations corroborate the Loadings analysis above.
+
+```{r contrib_var, echo = TRUE}
+library(FactoMineR)
+library(factoextra)
+
+varcontrib_pc1_wet = fviz_contrib(pca_wet, choice = "var", axes = 1, sort.val = "desc", ggtheme = theme_gray())
+
+varcontrib_pc2_wet = fviz_contrib(pca_wet, choice = "var", axes = 2, sort.val = "desc", ggtheme = theme_gray())
+
+varcontrib_pc1_dry = fviz_contrib(pca_dry, choice = "var", axes = 1, sort.val = "desc", ggtheme = theme_gray())
+
+varcontrib_pc2_dry = fviz_contrib(pca_dry, choice = "var", axes = 2, sort.val = "desc", ggtheme = theme_gray())
+
+# Contributions to combined PC1 and PC2
+varcontrib_pc1_2_wet = fviz_contrib(pca_wet, choice = "var", axes = 1:2, sort.val = "desc", ggtheme = theme_gray(), title = "Wet Season")
+
+varcontrib_pc1_2_dry = fviz_contrib(pca_dry, choice = "var", axes = 1:2, sort.val = "desc", ggtheme = theme_gray(), title = "Dry Season")
+
+library(patchwork)
+varcontrib_pc1_wet + varcontrib_pc2_wet + plot_annotation(title = 'Wet Season Data')
+
+varcontrib_pc1_dry + varcontrib_pc2_dry + plot_annotation(title = 'Dry Season Data')
+
+varcontrib_pc1_2_wet + varcontrib_pc1_2_dry + plot_annotation(title = 'Combined Contributions')
+```
+    
+Take note that the dotted red horizontal line in the Contribution plots above represent a sort of cut-off value: variables with contributions above the cut-off are regarded as having significant contribution to the given PC. Actually, the cut-off value is the expected average contribution if all p variables were to have equal contributions of $\frac{1}{p}\times100$. The results as observed in the Contribution plots are same as those already interpreted in the Loadings analysis section. As stated earlier, the Contribution is an absolute measure of the influence of a variable on a PC. Hence, all variables that strongly loaded into a PC (positively or negatively) are expected to have correspondingly contributed the most to that PC. The results here meet that expectation. For example, for the Wet Season data, pH, EC, TDS, Hardness, Ca, Mg are all strongly positively loaded into $PC_1$  while Zn and Mn  are both strongly negatively loaded into $PC_1$. These two sets of variables are indeed the top 9 contributors to $PC_1$, as per the Contribution plot. The combined Contribution plots shows that most of the variables contributed significantly to either $PC_1$, $PC_2$ or both; for both the Wet Season and Dry Season datasets. However, a few variables show no significant contributions to both $PC_1$ and $PC_2$.
+   
+    
+The information presented by the Correlation Circle (i.e Loading values) and Contribution values can be viewed together by colour-coding the arrows in Correlation Circle on the basis of the variables' Contribution Values. Expectedly, the more a variable loads into a PC, the more that variable contributes to that PC; so that the longer arrows are matched with higher contribution values regardless of the direction.
+   
+```{r loading_contrib, echo = TRUE}
+library(FactoMineR)
+library(factoextra)
+colored_corr_circle_wet = fviz_pca_var(pca_wet, col.var="contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE, ggtheme = theme_gray(), title = 'Wet Season')
+
+colored_corr_circle_dry = fviz_pca_var(pca_dry, col.var="contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE, ggtheme = theme_gray(), title = 'Dry Season')
+
+library(patchwork)
+colored_corr_circle_wet + colored_corr_circle_dry
+```
+   
+
+### Case 2: Influence of Observation points on Principal Components
+   
+The evaluation of the influence of each observation (sample) points on a given PC is also of interest in PCA. The influence of observation points is also measured in terms of Contribution - being the proportion of influence an observation point has on the construction of a PC. Now, a PC is constructed with the objective of maximizing the spread (variance) of the observation points when projected to the PC-axis. The variance of the projected points to the PC-axis is the variance of the PC scores. The first PC (i.e. $PC_1$) is created by searching for the direction (in the p-dimensional space) that maximizes variance of projected scores of observation points. Since variance of PC scores is at the core of creating a PC-axis, the contribution of an observation point to the construction of that PC-axis is measured in terms of the amount (proportion) of variance contributed by that observation point to the total PC variance. The total PC variance is sum of squares of all observation PC scores that pertain to that PC. Hence, the contribution of an observation point is the square of its PC score divided by the sum of squares (total PC variance).
+     
+Typically then, the influence of observation points on PCs are visualized through the *PC Scores plot* (aka Coordinates plot) and *Contribution plots*. The projection of an observation point onto a PC-axis is known as the PC-score of that observation on that PC; i.e. if the PC was a variable, the PC score would be the observed values of that variable for that observation point. Mathematically, the PC Score of an observation point on a PC is the inner (dot) product of data vector X (original scores) of that observation point and the loadings vector of that PC. The PC score for the nth sample on the kth PC is calculated thus:
+
+$$PC_{n,k} = w_{1,k}x_{n,1} + w_{2,k}x_{n,2} + w_{3,k}x_{n,3} + ...+ w_{p,k}x_{n,p}$$ 
+     
+   
+The plot of PC scores corresponding to all observation points for a pair of PCs, typically $PC_1$ and $PC_2$, in a 2-dimensional space with an axis devoted to each of the 2 PCs is known as PC Scores plot. The PC Score plot is the Case 2 (Observations) counterpart of the Correlation Circle plot in Case 1 (Variables). The higher the score of an observation point on a PC, the more the influence of that observation point on that PC, and consequently, the more the contribution of that point to the creation of that PC. Contributions plots can be obtained either as a plot of all 
+   
+The PC Scores plot is at the core of the use of PCA as a dimensionality reduction tool. The similarity between two or more observation points that have nearly similar observation values across all $p$ variables may not be obvious when there are several variables in the data. However, the relationship among all $p$ variables as encoded in the original data ($n\times p$ matrix) is largely encoded in the just the first 2 PC scores ($n\times 2$ matrix). So the PC Scores help to present information encoded in the original $p$ dimensions in just 2 dimensions. With only 2 dimensions, a 2-D plot (i.e. the PC Scores plot) is possible. With such PC Scores, two or more observations with similar observation values will plot close to each other, forming a sort of cluster of score points. This way similar observation points get to be visually detected easily. Using the same logic, an observation point significantly different and distinct from others can be detected as **outliers** on such 2-D PC Scores plots. Such outlier observation points would either have a significantly low or significantly high PC score compared to other scores. In essence, PC Score plots are used to detect **clusters** of observation points as well as **outliers**.
+   
+   
+Both the $PC_1$-$PC_2$ Scores plot (colour-coded on the basis of contribution) and the plots of Contributions of observation points to  $PC_1$ and to $PC_2$, for both Wet and Dry season are presented below.
+   
+```{r score_contrib, echo = TRUE}
+library(FactoMineR)
+library(factoextra)
+colored_PC_score_wet = fviz_pca_ind(pca_wet, col.ind="contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE, ggtheme = theme_gray(), title = 'Wet Season')
+
+colored_PC_score_dry = fviz_pca_ind(pca_dry, col.ind="contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE, ggtheme = theme_gray(), title = 'Dry Season')
+
+library(patchwork)
+colored_PC_score_wet + colored_PC_score_dry
+```
+
+```{r contrib_obs, echo = TRUE}
+library(FactoMineR)
+library(factoextra)
+
+obscontrib_pc1_wet = fviz_contrib(pca_wet, choice = "ind", axes = 1, sort.val = "desc", ggtheme = theme_gray())
+
+obscontrib_pc2_wet = fviz_contrib(pca_wet, choice = "ind", axes = 2, sort.val = "desc", ggtheme = theme_gray())
+
+obscontrib_pc1_dry = fviz_contrib(pca_dry, choice = "ind", axes = 1, sort.val = "desc", ggtheme = theme_gray())
+
+obscontrib_pc2_dry = fviz_contrib(pca_dry, choice = "ind", axes = 2, sort.val = "desc", ggtheme = theme_gray())
+
+# Combined contributions:
+obscontrib_pc1_2_wet = fviz_contrib(pca_wet, choice = "ind", axes = 1:2, sort.val = "desc", ggtheme = theme_gray(), title = 'Wet Season')
+
+obscontrib_pc1_2_dry = fviz_contrib(pca_dry, choice = "ind", axes = 1:2, sort.val = "desc", ggtheme = theme_gray(), title = 'Dry Season')
+
+library(patchwork)
+obscontrib_pc1_wet + obscontrib_pc2_wet + plot_annotation(title = 'Wet Season Data')
+
+obscontrib_pc1_dry + obscontrib_pc2_dry + plot_annotation(title = 'Dry Season Data')
+
+obscontrib_pc1_2_wet + obscontrib_pc1_2_dry + plot_annotation(title = 'Combined Contributions')
+```
+   
+**Wet Season Data**
+While there are no obvious clusters among the 8 observation points, Observation Point 1 (Sample 1) appears to be an outlier point in this  wet season dataset. Sample 1 stands out from the other samples in the sense that it has a significantly low scores on both $PC_1$ and $PC_2$. Expectedly, Sample 1 also have the highest contribution to the variance of $PC_1$ and the second-highest contribution to the variance of $PC_2$. These made Sample 1 the most significant observation points in the Wet Season dataset with a combined contribution of $37.71\%$ to $PC_1$ and $PC_2$. The domain expert might be able to provide geochemical interpretations to this observation.
+   
+**Dry Season Data**    
+For the dry season data, Samples 1, 2, 6, and 8 appeared to be clustered together. The domain experts need to justify this cluster, as well as give the reason these observation points are not clustered in the wet season data. Also, Observation Point 3 (Sample 3) appears to be an outlier point in this  dry season dataset. Sample 3 stands out from the other samples in the sense that it has a significantly high score on $PC_1$. Expectedly, Sample 3 also have the highest contribution to the variance of $PC_1$. These made Sample 3 the most significant observation points in the Dry Season dataset, with a combined contribution of $47.81\%$ to $PC_1$ and $PC_2$. The domain expert might be able to provide geochemical interpretations to this observation.  
+
+### Biplot: PC1 versus PC2
+The Biplot simply combines the information in the Correlation Cycle (for variables) and the PC Score plot (for observation points) into a single plot.
+  
+   
+```{r}
+# Biplot for Wet Season data
+wet_biplot = fviz_pca_biplot(pca_wet, geom = "text", title = 'Wet Season')
+
+# Biplot for Dry Season data
+dry_biplot = fviz_pca_biplot(pca_dry, geom = "text", title = 'Dry Season')
+
+library(patchwork)
+wet_biplot + dry_biplot
+```
+  
+
+## Cluster Analysis - Hierarchical Clustering
+   
+Here, the Hierarchical clustering algorithm is used to obtain both clusters of variables and clusters of sampling points. Euclidean distance is adopted as the measure of dissimilarity between sampling points while correlation-based distance is adopted as the measure of dissimilarity between variables. Ward's linkage method was used for agglomeration for both sampling points and variable cluster analyses.
+      
+### Sampling points clusters       
+```{r}
+hc_wet = hclust (dist(scale(data_wet[5:24])), method ="ward.D")
+hc_dry = hclust (dist(scale(data_dry[5:24])), method ="ward.D")
+par(mfrow = c(1 ,2))
+plot(hc_wet ,main ="Wet Season Data", xlab ="Sampling points", sub ="",cex =.9)
+plot(hc_dry ,main ="Dry Season Data", xlab ="Sampling points", sub ="",cex =.9)
+```
+
+**Wet Season**
+Establishing a cut at Height 8 for the Wet season data, two clusters of sampling points are obtained: Sampling Points 2, 3, 4, 5 and 6, and Sampling Points 1, 7 and 8. Somewhat, these clusters agree with those observed on the $PC_1$ versus $PC_2$ biplot where each of these groups of variables takes different sides of the plot. Suffice it to state that the clustering observations made here supercede those made in the biplot; since the biplot only consider two principal components. In any case,   the domain expert is expected to furnish reasons for this clustering trends (if any).
+
+**Dry Season**
+For the Dry season dendogram, three clusters are obvious, so, the cut is made at Height 7. The three clusters are: Sampling Point 3 (stand-alone), Sampling Points 5, 7 and 8, and Sampling Points 1, 2, 4 and 6. Again, these observations allign with the biplot where Sampling Point 3 is indeed stand-alone, Sampling Points 1, 2, 4 and 6 are towards the top and Sampling Points 5, 7 and 8 are towards the bottom. In addition to giving the reason for these Dry Season clusters, the domain expert is also to explain why sampling points clusters formed in the Wet Season are quite different from those formed in the Dry Season. 
+
+
+
+### Variables/Parameters clusters
+```{r}
+dd_wet = as.dist(1-cor(data_wet[5:24]))
+hc_wet_var = hclust (dd_wet, method ="ward.D2")
+dd_dry = as.dist(1-cor(data_dry[5:24]))
+hc_dry_var = hclust (dd_dry, method ="ward.D2")
+par(mfrow = c(1 ,2))
+plot(hc_wet_var ,main ="Wet Season Data", xlab ="Parameters", sub ="",cex =.9)
+plot(hc_dry_var ,main ="Dry Season Data", xlab ="Parameters", sub ="",cex =.9)
+```
+   
+The clusters of parameters as observed in the parameters dendograms above clearly validates the results earlier obtained in the correlation analysis segment of this report. Depending on the point of cut, each cluster presents a group of variables that are positively correlated with one another. The lower the cut-point, the stronger the correlation between parameters in the resultant clusters. For example, cutting at Height 1.0 yields the following clusters of parameters:
+   
+* Wet Season
+  + ph, EC and TDS (recognized in correlation analysis as a strongly positively correlated group)
+  + Hardness, Ca and Mg (recognized in correlation analysis as a strongly positively correlated group)
+  + K, PO4, Cu, NO3 and Ni
+  + SO4, Mn, Cl and Zn
+  + Temp and Fe
+  + Na, Pb and Cr
+* Dry Season 
+  + ph, EC, TDS, Cl, SO4, NO3 and Cr (recognized in correlation analysis as a strongly positively correlated group)
+  + Ni and Mn (recognized in correlation analysis as a strongly positively correlated group)
+  + Zn, Temp and Cu
+  + Na, K, Fe and Pb
+  + Hardness, PO4, Ca and Mg.
+     
+Note that some clusters here contain more parameters than listed in the correlated parameters earlier reported. This is because only strongly correlated parameters were identified there; the cluster here identified all positively correlated groups of parameters.   
+  
+   
+ 
+
